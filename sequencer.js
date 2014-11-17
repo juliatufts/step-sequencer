@@ -9,29 +9,34 @@
 	};
 
 	
-	var Sequencer = function(canvasId) {
+	var Sequencer = function(canvasId, resetId, waveId, tempoId) {
 
 		var canvas = document.getElementById(canvasId);
 		var screen = canvas.getContext("2d");
 		var audioCtx = new AudioContext();
 
-		this.grid = new Grid(canvas.width, canvas.height, Math.floor(canvas.width / 16));
-		this.mouser = new Mouser(canvas, this.grid);
-		this.player = new Player(261.626, 16); 				// C4 to Eb5
-		this.colors = {light : ["#24C0EB", "#5CCEEE"], 		// main color and lighter border color, blue
-		               active : ["#73D100", "#C8FF00"],		// green
-		               neutral : ["#424242", "#575757"]};	// grey
+		var resetButton = document.getElementById(resetId);
+		var waveSelect = document.getElementById(waveId);
+		var tempoInput = document.getElementById(tempoId);
 
 		var date = new Date();
 		var time = date.getTime();
-		var stepInterval = 500; 	// time step interval in milliseconds	
-		this.beatIndex = 0;			// the current beat (0-15)
+		this.stepInterval = 1000 / 4;  // time step interval in milliseconds, default 60bpm
+		this.beatIndex = 0;			   // the current beat (0-15)
+
+		this.grid = new Grid(canvas.width, canvas.height, Math.floor(canvas.width / 16));
+		this.mouser = new Mouser(canvas, this.grid);
+		this.player = new Player(261.626, 16, "square", 250); 	// C4 to Eb5
+		this.controlPanel = new ControlPanel(resetButton, waveSelect, tempoInput, this.grid, this.player);
+		this.colors = {light : ["#24C0EB", "#5CCEEE"], 		// main color and lighter border color, blue
+		               active : ["#73D100", "#C8FF00"],		// green
+		               neutral : ["#424242", "#575757"]};	// grey
 
 		// main loop
 		var self = this;
 		var tick = function() {
 			// every time step interval
-			if (new Date().getTime() - time > stepInterval) {
+			if (new Date().getTime() - time > self.player.tempo) {
 				time = new Date().getTime();
 				self.step(audioCtx);
 			}
@@ -72,17 +77,10 @@
 
 
 	var Grid = function(width, height, cellSize) {
-		var gridArray = [];
-		for (var x = 0; x < width; x += cellSize) {
-			var col = [];
-			for (var y = 0; y < height; y += cellSize) {
-				col.push({x : x, y : y, active : false});
-			}
-			gridArray.push(col);
-		}
-
-		this.array = gridArray;
+		this.width = width;
+		this.height = height;
 		this.cellSize = cellSize;
+		this.array = this.blankArray();
 	}
 
 	Grid.prototype = {
@@ -125,6 +123,18 @@
 
 		toggleCell : function(pos) {
 			this.array[pos.x][pos.y].active = !this.array[pos.x][pos.y].active;
+		},
+
+		blankArray : function() {
+			var gridArray = [];
+			for (var x = 0; x < this.width; x += this.cellSize) {
+				var col = [];
+				for (var y = 0; y < this.height; y += this.cellSize) {
+					col.push({x : x, y : y, active : false});
+				}
+				gridArray.push(col);
+			}
+			return gridArray;
 		}
 	};
 
@@ -170,7 +180,44 @@
 	};
 
 
-	var Player = function(startingPitch, numNotes) {
+	var ControlPanel = function(resetButton, waveSelect, tempoInput, grid, player) {	
+		this.waveSelect = waveSelect;
+		this.tempoInput = tempoInput;
+		
+		// event handlers
+		resetButton.onclick = partial([grid], this.resetGrid.bind(this));
+		waveSelect.onchange = partial([player], this.setWaveType.bind(this));
+		tempoInput.onchange = partial([player], this.setTempo.bind(this));
+	}
+
+	ControlPanel.prototype = {
+		resetGrid : function(grid) {
+			grid.array = grid.blankArray();
+		},
+
+		setWaveType : function(player) {
+			player.setWaveType(this.waveSelect.value);
+		},
+
+		setTempo : function(player) {
+			// adjust to be in range
+			if (this.tempoInput.value < 1) {
+				this.tempoInput.value = 1;
+			} else if (this.tempoInput.value > 300) {
+				this.tempoInput.value = 300;
+			}
+
+			// bpm to time step in milliseconds, one step is an eighth note value
+			var millis = (1000 / (this.tempoInput.value / 60)) / 4;
+			player.setTempo(millis);
+		}
+	};
+
+
+	var Player = function(startingPitch, numNotes, waveType, tempo) {
+		this.waveType = waveType;
+		this.tempo = tempo;
+
 		this.frequencies = [];
 		for (var i = 0; i < numNotes; i++){
 			this.frequencies.push(startingPitch * Math.pow(2, i/12));
@@ -184,9 +231,18 @@
 	};
 
 	Player.prototype = {
+		setTempo : function(tempo) {
+			this.tempo = tempo;
+		},
+
+		setWaveType : function(type) {
+			this.waveType = type;
+		},
+
 		newOscillator : function(audioCtx, frequency) {
 			var oscillator = audioCtx.createOscillator();
 			oscillator.frequency.value = frequency;
+			oscillator.type = this.waveType;
 			oscillator.connect(audioCtx.destination);
 			return oscillator;
 		},
@@ -204,7 +260,7 @@
 
 
 	window.onload = function() {
-		new Sequencer("canvasId");
+		new Sequencer("canvasId", "resetId", "waveId", "tempoId");
 	};
 
 })();

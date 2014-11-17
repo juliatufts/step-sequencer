@@ -2,18 +2,44 @@
 <html>
 	<head>
 		<style>
+			#controls {
+				text-align: center;
+			}
+
+			.control {
+
+			}
+
+			button, select {
+				margin-left: auto;
+				margin-right: auto;
+			}
+
 			canvas {
 				margin-left: auto;
 				margin-right: auto;
-				padding-left: 0;
-				padding-right: 0;
+				margin-top: 10px;
 				display: block;
 			}
 		</style>
+		<script src="sequencer.js"></script>
 	</head>
 
 	<body>
+		<div id="controls">			
+			<form>
+				<button id="resetId" class="control">Reset</button>
+				Wave Type : 
+				<select id="waveId" class="control">
+		  		  <option value="square">Square</option>
+				  <option value="sine">Sine</option>
+				  <option value="sawtooth">Sawtooth</option>
+				  <option value="triangle">Triangle</option>
+				</select>
+				Tempo :
+				<input id="tempoId" type="number" min="1" max="300">
+			</form>
+		</div>
 		<canvas id="canvasId" width="512px" height="512px"></canvas>
-		<script src="sequencer.js"></script>
 	</body>
 </html>

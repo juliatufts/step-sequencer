@@ -28,9 +28,11 @@
 		this.mouser = new Mouser(canvas, this.grid);
 		this.player = new Player(261.626, 16, "square", 250); 	// C4 to Eb5
 		this.controlPanel = new ControlPanel(resetButton, waveSelect, tempoInput, this.grid, this.player);
-		this.colors = {light : ["#24C0EB", "#5CCEEE"], 		// main color and lighter border color, blue
-		               active : ["#73D100", "#C8FF00"],		// green
-		               neutral : ["#424242", "#575757"]};	// grey
+
+		// main color and lighter border color
+		this.colors = {light : ["#24C0EB", "#5CCEEE"],			 		// blue, light blue
+		               active : ["#73D100", "#C8FF00"],					// green, light green
+		               neutral : ["#424242", "#575757", "000000"]};		// grey, light grey, black
 
 		// main loop
 		var self = this;
@@ -81,9 +83,22 @@
 		this.height = height;
 		this.cellSize = cellSize;
 		this.array = this.blankArray();
+		this.selectedCells = [];			// for clicking and dragging across multiple cells
 	}
 
 	Grid.prototype = {
+		blankArray : function() {
+			var gridArray = [];
+			for (var x = 0; x < this.width; x += this.cellSize) {
+				var col = [];
+				for (var y = 0; y < this.height; y += this.cellSize) {
+					col.push({x : x, y : y, active : false});
+				}
+				gridArray.push(col);
+			}
+			return gridArray;
+		},
+
 		drawCell : function(screen, x, y, size, color, borderColor) {
 			screen.fillStyle = borderColor;
 			screen.fillRect(x + 2, y + 2, size - 4, size - 4);
@@ -92,25 +107,31 @@
 			screen.fillRect(x + 4, y + 4, size - 8, size - 8);
 		},
 
+
+		///// STRANGE COLOR BUG GOING ON??????
+		// Returns [main color, border color]
+		determineCellColors : function(cell, col, highlightIndex, colors) {
+			if (cell.active) {
+				return [colors.active[0], colors.active[1]];
+			} else if (col === highlightIndex) {
+				return [colors.light[0], colors.light[1]];
+			} else if (col % 4 === 0) {
+				return [colors.neutral[0], colors.neutral[1]];
+			} else {
+				return ["black", "black"];
+				//return [colors.neutral[2], colors.neutral[2]];
+			}
+		},
+
 		draw : function(screen, highlightIndex, colors) {
 			var cell;
-			var color;
-			var borderColor;
+			var colorArray;	// [main color, border color]
 
 			for (var col = 0; col < this.array.length; col++) {
 				for (var y = 0; y < this.array[0].length; y++) {
 					cell = this.array[col][y];
-					if (cell.active) {
-						color = colors.active[0];
-						borderColor = colors.active[1];
-					} else if (col === highlightIndex) {
-						color = colors.light[0];
-						borderColor = colors.light[1];
-					} else {
-						color = colors.neutral[0];
-						borderColor = colors.neutral[1];
-					}
-					this.drawCell(screen, cell.x, cell.y, this.cellSize, color, borderColor);
+					colorArray = this.determineCellColors(cell, col, highlightIndex, colors);
+					this.drawCell(screen, cell.x, cell.y, this.cellSize, colorArray[0], colorArray[1]);
 				}
 			}
 		},
@@ -123,18 +144,30 @@
 
 		toggleCell : function(pos) {
 			this.array[pos.x][pos.y].active = !this.array[pos.x][pos.y].active;
+			return this.array[pos.x][pos.y].active;	// return the new state of the cell
 		},
 
-		blankArray : function() {
-			var gridArray = [];
-			for (var x = 0; x < this.width; x += this.cellSize) {
-				var col = [];
-				for (var y = 0; y < this.height; y += this.cellSize) {
-					col.push({x : x, y : y, active : false});
+		setCell : function(pos, bool) {
+			this.array[pos.x][pos.y].active = bool;
+		},
+
+		cellInArray : function(arr, cell) {
+			for (var i = 0; i < arr.length; i++) {
+				if (this.cellsAreEqual(arr[i], cell)) {
+					return true;
 				}
-				gridArray.push(col);
 			}
-			return gridArray;
+			return false;
+		},
+
+		cellsAreEqual : function(cell1, cell2) {
+			return (cell1.x === cell2.x && cell1.y === cell2.y);
+		},
+
+		addToSelectedCells : function(cell) {
+			if (!this.cellInArray(this.selectedCells, cell)) {
+				this.selectedCells.push(cell);
+			}
 		}
 	};
 
@@ -142,10 +175,13 @@
 	var Mouser = function(canvas, grid) {
 		this.pos = {x : 0, y : 0};
 		this.isDown = false;
+		this.lastClickState = true;		// was the last cell clicked on active?
 
 		// Event listeners for user input (mouse clicks)
 		canvas.addEventListener("mousedown", partial([canvas, grid], this.onMouseDown.bind(this)));
 		canvas.addEventListener("mouseup", partial([canvas], this.onMouseUp.bind(this)));
+		canvas.addEventListener("mousemove", partial([canvas, grid], this.onMouseMove.bind(this)));
+		canvas.addEventListener("mouseout", partial([canvas, grid], this.onMouseOut.bind(this)));
 	};
 
 	Mouser.prototype = {
@@ -161,6 +197,10 @@
 			var rect = canvas.getBoundingClientRect();
 			this.pos.x = event.offsetX || event.pageX - rect.left - window.scrollX;
 	    	this.pos.y = event.offsetY || event.pageY - rect.top - window.scrollY;
+
+	    	// clip to make sure the position is in bounds of the canvas
+	    	this.pos.x = Math.max(Math.min(this.pos.x, canvas.width), 0);
+	    	this.pos.y = Math.max(Math.min(this.pos.y, canvas.height), 0);
 		},
 
 		onMouseDown : function(canvas, grid, event) {
@@ -169,13 +209,34 @@
 			// is there a better way to do this? 
 			// It would be ideal to have the grid be separate from the mouser
 			var clickedCell = grid.mousePosToGridCell(this.pos);
-			grid.toggleCell(clickedCell);
+			this.lastClickState = grid.toggleCell(clickedCell);
+			grid.selectedCells = [];
 			
 			this.isDown = true;
 		},
 
+		onMouseMove : function(canvas, grid, event) {
+			// if the mouse is clicking and dragging
+			if (this.isDown) {
+				this.setCoordinates(canvas);
+				var currentSelectedCell = grid.mousePosToGridCell(this.pos);
+
+				// if the currently selected cell hasn't been updated already, update it
+				if (!grid.cellInArray(grid.selectedCells, currentSelectedCell)) {
+					grid.setCell(currentSelectedCell, this.lastClickState);
+				}
+				// and add it to the selected cells
+				grid.addToSelectedCells(currentSelectedCell);
+			}
+		},
+
 		onMouseUp : function(canvas, event) {
 			this.isDown = false;
+		},
+
+		onMouseOut : function(canvas, grid, event) {
+			this.isDown = false;
+			grid.selectedCells = [];
 		}
 	};
 

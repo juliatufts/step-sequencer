@@ -7,64 +7,75 @@
 			fn.apply(null, argArray.concat(args))
 		};
 	};
-
 	
-	var Sequencer = function(canvasId, resetId, waveId, tempoId) {
-
+	var Sequencer = function(canvasId, formId) {
 		var canvas = document.getElementById(canvasId);
 		var screen = canvas.getContext("2d");
 		var audioCtx = new AudioContext();
 
-		var resetButton = document.getElementById(resetId);
-		var waveSelect = document.getElementById(waveId);
-		var tempoInput = document.getElementById(tempoId);
-
-		var date = new Date();
-		var time = date.getTime();
-		this.stepInterval = 1000 / 4;  // time step interval in milliseconds, default 60bpm
-		this.beatIndex = 0;			   // the current beat (0-15)
-
 		this.grid = new Grid(canvas.width, canvas.height, Math.floor(canvas.width / 16));
 		this.mouser = new Mouser(canvas, this.grid);
-		this.player = new Player(261.626, 16, "square", 250); 	// C4 to Eb5
-		this.controlPanel = new ControlPanel(resetButton, waveSelect, tempoInput, this.grid, this.player);
+		this.player = new Player(261.626, 16, "square", 250); 	// C4 to Eb5, 60bpm
+		this.currentBeat = 15;	// the beat increments right away, so start one before 0
 
 		// main color and lighter border color
 		this.colors = {light : ["#24C0EB", "#5CCEEE"],			 		// blue, light blue
-		               active : ["#73D100", "#C8FF00"],					// green, light green
-		               neutral : ["#424242", "#575757", "000000"]};		// grey, light grey, black
+		               neutral : ["#424242", "#575757", "#000000"]};	// grey, light grey, black
 
-		// main loop
+		this.ticker = new Ticker();
 		var self = this;
-		var tick = function() {
-			// every time step interval
-			if (new Date().getTime() - time > self.player.tempo) {
-				time = new Date().getTime();
-				self.step(audioCtx);
-			}
-
-			// every frame
+		var runSequencer = function() {
+			self.step(audioCtx);
 			self.draw(screen);
-			requestAnimationFrame(tick);
-		}
+		};
 
-		tick();
+		var lastId;
+		this.setTempo = function(tempo) {
+			// adjust tempo to be in range
+			tempo = (tempo < 1) ? 1 : ((tempo > 300) ? 300 : tempo);
+			
+			this.ticker.delete(lastId);
+			lastId = this.ticker.every(this.tempoToTimestep(tempo), runSequencer);
+		} 
+
+		this.setupUI(formId);
 	};
 
 	Sequencer.prototype = {
+		setupUI : function(formId) {
+			this.ui = new UI(formId);
+			this.ui.addButton("Reset", this.reset.bind(this));
+			this.ui.addSelect("Wave Type", {Square : "square",
+							   			  	Sine : "sine",
+							                Sawtooth : "sawtooth",
+							            	Triangle : "triangle"}, this.setWave.bind(this));
+			this.ui.addNumberInput("Tempo", 60, 1, 300, this.setTempo.bind(this));
+			this.setTempo(60);
+		},
+
+		tempoToTimestep : function(tempo) {
+			return (1000 / (tempo / 60)) / 4;
+		},
+
+		reset : function() {
+			this.grid.array = this.grid.blankArray();
+		},
+
+		setWave : function(waveType) {
+			this.player.setWaveType(waveType);
+		},
+
 		draw : function(screen) {
-			this.grid.draw(screen, this.beatIndex, this.colors);
+			this.grid.draw(screen, this.currentBeat, this.colors);
 		},
 
 		step : function(audioCtx) {
-
-			this.beatIndex = (this.beatIndex + 1) % 16;
-			var prevCol = this.grid.array[(this.beatIndex + 15) % 16];
-			var currentCol = this.grid.array[this.beatIndex];
+			// +1 since current beat starts on beat -1
+			var prevCol = this.grid.array[this.currentBeat];
+			var currentCol = this.grid.array[(this.currentBeat + 1) % 16];
 			
 			for (var i = 0; i < 16; i++) {
 				// stop playing the previous column
-				// remember to only stop an oscillator if it's already playing
 				if (prevCol[i].active && this.player.oscillators[i] != null) {
 					this.player.stop(i);
 				}
@@ -74,6 +85,89 @@
 					this.player.start(audioCtx, i);
 				}
 			}
+			this.currentBeat = (this.currentBeat + 1) % 16;
+		}
+	};
+
+
+	UI = function(formId) {
+		this.form = document.getElementById(formId);
+
+		// prevent enter key from refreshing page
+		this.form.onsubmit = function(e) {
+			e.preventDefault();
+		};
+	};
+
+	UI.prototype = {
+		addButton : function(label, fn) {
+			var button = document.createElement("button");
+			var text = document.createTextNode(label);
+			this.form.appendChild(button).appendChild(text);
+
+			button.onclick = fn;
+		},
+
+		addSelect : function(label, options, fn) {
+			var select = document.createElement("select");
+			for (var i in options) {
+				var opt = document.createElement("option");
+				var text = document.createTextNode(i);
+				opt.value = options[i];
+				select.appendChild(opt).appendChild(text);
+			}
+			this.form.appendChild(document.createTextNode(label));
+			this.form.appendChild(select);
+
+			select.onchange = function() {
+				fn(select.value);
+			}
+		},
+
+		addNumberInput : function(label, value, min, max, fn) {
+			var input = document.createElement("input");
+			input.type = "number";
+			input.value = value;
+			input.min = min;
+			input.max = max;
+			this.form.appendChild(document.createTextNode(label));
+			this.form.appendChild(input);
+
+			input.onchange = function() {
+				fn(input.value);
+			};
+		}
+	};
+
+
+	var Ticker = function() {
+		this._id = 0;
+		this._fns = {};
+		var self = this;
+		var tick = function() {
+			for (var i in self._fns) {
+				if (new Date().getTime() - self._fns[i].last > self._fns[i].time) {
+					self._fns[i].fn();
+					self._fns[i].last = new Date().getTime();
+				}
+			}
+			requestAnimationFrame(tick);
+		}
+		tick();
+	};
+
+	Ticker.prototype = {
+		every : function(time, fn) {
+			this._fns[this._id] = {last : new Date().getTime(), time : time, fn : fn};
+			return this._id++;
+		},
+
+		getTime : function() {
+			return new Date().getTime();
+		},
+
+		delete : function(id) {
+			delete this._fns[id];
 		}
 	};
 
@@ -107,19 +201,24 @@
 			screen.fillRect(x + 4, y + 4, size - 8, size - 8);
 		},
 
-
-		///// STRANGE COLOR BUG GOING ON??????
 		// Returns [main color, border color]
-		determineCellColors : function(cell, col, highlightIndex, colors) {
+		determineCellColors : function(cell, col, y, highlightIndex, colors) {
 			if (cell.active) {
-				return [colors.active[0], colors.active[1]];
+				// the active color is lighter for higher frequency notes (those with smaller y value)
+				var r = Math.floor(100 * ((16 - y) / 16) + 30);
+				var g = Math.floor((255 - 175) * ((16 - y) / 16) + 175);
+				var b = Math.floor(100 * ((16 - y) / 16) + 30);
+
+				var main = "rgb(" + r + "," + g + "," + b + ")";
+				var border = "rgb(" + (r + 30) + "," + (g + 30) + "," + (b + 30) + ")";
+				
+				return [main, border];
 			} else if (col === highlightIndex) {
 				return [colors.light[0], colors.light[1]];
 			} else if (col % 4 === 0) {
 				return [colors.neutral[0], colors.neutral[1]];
 			} else {
-				return ["black", "black"];
-				//return [colors.neutral[2], colors.neutral[2]];
+				return [colors.neutral[2], colors.neutral[0]];
 			}
 		},
 
@@ -130,7 +229,7 @@
 			for (var col = 0; col < this.array.length; col++) {
 				for (var y = 0; y < this.array[0].length; y++) {
 					cell = this.array[col][y];
-					colorArray = this.determineCellColors(cell, col, highlightIndex, colors);
+					colorArray = this.determineCellColors(cell, col, y, highlightIndex, colors);
 					this.drawCell(screen, cell.x, cell.y, this.cellSize, colorArray[0], colorArray[1]);
 				}
 			}
@@ -241,43 +340,8 @@
 	};
 
 
-	var ControlPanel = function(resetButton, waveSelect, tempoInput, grid, player) {	
-		this.waveSelect = waveSelect;
-		this.tempoInput = tempoInput;
-		
-		// event handlers
-		resetButton.onclick = partial([grid], this.resetGrid.bind(this));
-		waveSelect.onchange = partial([player], this.setWaveType.bind(this));
-		tempoInput.onchange = partial([player], this.setTempo.bind(this));
-	}
-
-	ControlPanel.prototype = {
-		resetGrid : function(grid) {
-			grid.array = grid.blankArray();
-		},
-
-		setWaveType : function(player) {
-			player.setWaveType(this.waveSelect.value);
-		},
-
-		setTempo : function(player) {
-			// adjust to be in range
-			if (this.tempoInput.value < 1) {
-				this.tempoInput.value = 1;
-			} else if (this.tempoInput.value > 300) {
-				this.tempoInput.value = 300;
-			}
-
-			// bpm to time step in milliseconds, one step is an eighth note value
-			var millis = (1000 / (this.tempoInput.value / 60)) / 4;
-			player.setTempo(millis);
-		}
-	};
-
-
-	var Player = function(startingPitch, numNotes, waveType, tempo) {
+	var Player = function(startingPitch, numNotes, waveType) {
 		this.waveType = waveType;
-		this.tempo = tempo;
 
 		this.frequencies = [];
 		for (var i = 0; i < numNotes; i++){
@@ -292,9 +356,6 @@
 	};
 
 	Player.prototype = {
-		setTempo : function(tempo) {
-			this.tempo = tempo;
-		},
 
 		setWaveType : function(type) {
 			this.waveType = type;
@@ -321,7 +382,7 @@
 
 
 	window.onload = function() {
-		new Sequencer("canvasId", "resetId", "waveId", "tempoId");
+		new Sequencer("canvasId", "formId");
 	};
 
 })();

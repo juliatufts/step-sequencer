@@ -13,19 +13,20 @@
 		var screen = canvas.getContext("2d");
 		var audioCtx = new AudioContext();
 
-		this.grid = new Grid(canvas.width, canvas.height, Math.floor(canvas.width / 16));
-		this.mouser = new Mouser(canvas, this.grid);
-		this.player = new Player(261.626, 16, "square", 250); 	// C4 to Eb5, 60bpm
-		this.currentBeat = 15;	// the beat increments right away, so start one before 0
+		var ch = new Channel(16);
+		console.log(ch);
 
-		// main color and lighter border color
+		this.grid = new Grid(canvas.width, canvas.height, Math.floor(canvas.width / 16), ch);
+		this.mouser = new Mouser(canvas, this.grid);
+		this.player = new Player(261.626, 16, audioCtx); 	// C4 to Eb5
+		this.currentBeat = 15;	// the beat increments right away, so start one before 0
 		this.colors = {light : ["#24C0EB", "#5CCEEE"],			 		// blue, light blue
 		               neutral : ["#424242", "#575757", "#000000"]};	// grey, light grey, black
-
 		this.ticker = new Ticker();
+
 		var self = this;
 		var runSequencer = function() {
-			self.step(audioCtx);
+			self.step();
 			self.draw(screen);
 		};
 
@@ -33,7 +34,6 @@
 		this.setTempo = function(tempo) {
 			// adjust tempo to be in range
 			tempo = (tempo < 1) ? 1 : ((tempo > 300) ? 300 : tempo);
-			
 			this.ticker.delete(lastId);
 			lastId = this.ticker.every(this.tempoToTimestep(tempo), runSequencer);
 		} 
@@ -44,11 +44,18 @@
 	Sequencer.prototype = {
 		setupUI : function(formId) {
 			this.ui = new UI(formId);
+
+			// reset button
 			this.ui.addButton("Reset", this.reset.bind(this));
-			this.ui.addSelect("Wave Type", {Square : "square",
+
+			// channel select for wave type
+			this.ui.addSelect("Channel", {Square : "square",
 							   			  	Sine : "sine",
 							                Sawtooth : "sawtooth",
-							            	Triangle : "triangle"}, this.setWave.bind(this));
+							            	Triangle : "triangle"}, this.setChannel.bind(this));
+			this.setChannel("square");
+
+			// tempo
 			this.ui.addNumberInput("Tempo", 60, 1, 300, this.setTempo.bind(this));
 			this.setTempo(60);
 		},
@@ -58,18 +65,25 @@
 		},
 
 		reset : function() {
+			// stop current beat oscillators
+			for (var i = 0; i < 16; i++) {
+				if (this.player.oscillators[i] != null) {
+					this.player.stop(i);
+				}
+			}
+			// reset grid
 			this.grid.array = this.grid.blankArray();
 		},
 
-		setWave : function(waveType) {
-			this.player.setWaveType(waveType);
+		setChannel : function(waveType) {
+			this.player.setChannelType(waveType);
 		},
 
 		draw : function(screen) {
 			this.grid.draw(screen, this.currentBeat, this.colors);
 		},
 
-		step : function(audioCtx) {
+		step : function() {
 			// +1 since current beat starts on beat -1
 			var prevCol = this.grid.array[this.currentBeat];
 			var currentCol = this.grid.array[(this.currentBeat + 1) % 16];
@@ -82,11 +96,26 @@
 
 				// start playing the current column
 				if (currentCol[i].active) {
-					this.player.start(audioCtx, i);
+					this.player.start(i);
 				}
 			}
 			this.currentBeat = (this.currentBeat + 1) % 16;
 		}
+	};
+
+
+	var Channel = function(numNotes) {
+		var arr = [];
+		for (var i = 0; i < numNotes; i++) {
+			var col = [];
+			for (var j = 0; j < numNotes; j++) {
+				col.push(0);
+			}
+			arr.push(col);
+		}
+
+		this.notes = arr;
+		this.waveType = "square";
 	};
 
 
@@ -121,7 +150,7 @@
 
 			select.onchange = function() {
 				fn(select.value);
-			}
+			};
 		},
 
 		addNumberInput : function(label, value, min, max, fn) {
@@ -172,12 +201,13 @@
 	};
 
 
-	var Grid = function(width, height, cellSize) {
+	var Grid = function(width, height, cellSize, channel) {
 		this.width = width;
 		this.height = height;
 		this.cellSize = cellSize;
-		this.array = this.blankArray();
 		this.selectedCells = [];			// for clicking and dragging across multiple cells
+		this.array = this.blankArray();
+		this.channel = channel;
 	}
 
 	Grid.prototype = {
@@ -305,8 +335,7 @@
 		onMouseDown : function(canvas, grid, event) {
 			this.setCoordinates(canvas);
 
-			// is there a better way to do this? 
-			// It would be ideal to have the grid be separate from the mouser
+			// is there a better way to do this? it'd be nice to have grid be separate from the mouser
 			var clickedCell = grid.mousePosToGridCell(this.pos);
 			this.lastClickState = grid.toggleCell(clickedCell);
 			grid.selectedCells = [];
@@ -340,37 +369,32 @@
 	};
 
 
-	var Player = function(startingPitch, numNotes, waveType) {
-		this.waveType = waveType;
+	var Player = function(startingPitch, numNotes, audioCtx) {
+		this.audioCtx = audioCtx;
+		this.oscillators = [];
+		this.frequencies = [];		// a different frequency for each row
 
-		this.frequencies = [];
 		for (var i = 0; i < numNotes; i++){
 			this.frequencies.push(startingPitch * Math.pow(2, i/12));
 		}
 		this.frequencies.reverse(); // to order pitches from high to low
-
-		this.oscillators = [];
-		for (var i = 0; i < this.oscillators.length; i++) {
-			this.oscillators.push(null);
-		}
 	};
 
 	Player.prototype = {
-
-		setWaveType : function(type) {
+		setChannelType : function(type) {
 			this.waveType = type;
 		},
 
-		newOscillator : function(audioCtx, frequency) {
-			var oscillator = audioCtx.createOscillator();
+		newOscillator : function(frequency, waveType) {
+			var oscillator = this.audioCtx.createOscillator();
 			oscillator.frequency.value = frequency;
-			oscillator.type = this.waveType;
-			oscillator.connect(audioCtx.destination);
+			oscillator.type = waveType;
+			oscillator.connect(this.audioCtx.destination);
 			return oscillator;
 		},
 
-		start : function(audioCtx, index) {
-			this.oscillators[index] = this.newOscillator(audioCtx, this.frequencies[index]);
+		start : function(index) {
+			this.oscillators[index] = this.newOscillator(this.frequencies[index], this.waveType);
 			this.oscillators[index].start(0);
 		},
 

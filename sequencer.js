@@ -12,24 +12,37 @@
 		var canvas = document.getElementById(canvasId);
 		var screen = canvas.getContext("2d");
 		var audioCtx = new AudioContext();
+		var waveTypes = ['square', 'sine', 'sawtooth', 'triangle'];
 
-		var ch = new Channel(16);
-		console.log(ch);
-
-		this.grid = new Grid(canvas.width, canvas.height, Math.floor(canvas.width / 16), ch);
-		this.mouser = new Mouser(canvas, this.grid);
-		this.player = new Player(261.626, 16, audioCtx); 	// C4 to Eb5
+		//--------------------- properties
+		this.channels = {};
+		this.players = {};
+		for (var i = 0; i < waveTypes.length; i++) {
+			this.channels[waveTypes[i]] = new Grid(waveTypes[i], canvas.width, canvas.height, Math.floor(canvas.width / 16))
+			this.players[waveTypes[i]] = new Player(261.626, 16, waveTypes[i], audioCtx); // C4 to Eb5
+		}
+		this.currentGrid = this.channels.square;
+		this.mouseInput = new SequencerMouseInput(canvas, this);
 		this.currentBeat = 15;	// the beat increments right away, so start one before 0
 		this.colors = {light : ["#24C0EB", "#5CCEEE"],			 		// blue, light blue
 		               neutral : ["#424242", "#575757", "#000000"]};	// grey, light grey, black
 		this.ticker = new Ticker();
 
+		//--------------------- timing and main functions
+		// step once on the beat
 		var self = this;
 		var runSequencer = function() {
 			self.step();
-			self.draw(screen);
 		};
 
+		// update as fast as possible
+		var lastUpdateId;
+		this.runUpdate = function() {
+			self.draw(screen);
+		}
+		lastUpdateId = this.ticker.every(5, this.runUpdate);
+
+		// set tempo
 		var lastId;
 		this.setTempo = function(tempo) {
 			// adjust tempo to be in range
@@ -38,6 +51,7 @@
 			lastId = this.ticker.every(this.tempoToTimestep(tempo), runSequencer);
 		} 
 
+		//--------------------- UI
 		this.setupUI(formId);
 	};
 
@@ -45,18 +59,21 @@
 		setupUI : function(formId) {
 			this.ui = new UI(formId);
 
-			// reset button
-			this.ui.addButton("Reset", this.reset.bind(this));
+			// reset all button
+			this.ui.addButton("Reset All", this.resetAll.bind(this));
+
+			// reset channel button
+			this.ui.addButton("Reset Channel", this.resetCurrentChannel.bind(this));
 
 			// channel select for wave type
-			this.ui.addSelect("Channel", {Square : "square",
+			this.ui.addSelect("Channel : ", {Square : "square",
 							   			  	Sine : "sine",
 							                Sawtooth : "sawtooth",
 							            	Triangle : "triangle"}, this.setChannel.bind(this));
 			this.setChannel("square");
 
 			// tempo
-			this.ui.addNumberInput("Tempo", 60, 1, 300, this.setTempo.bind(this));
+			this.ui.addNumberInput("Tempo : ", 60, 1, 300, this.setTempo.bind(this));
 			this.setTempo(60);
 		},
 
@@ -64,58 +81,73 @@
 			return (1000 / (tempo / 60)) / 4;
 		},
 
-		reset : function() {
+		resetAll : function() {
+			// for all channels
+			for (var waveType in this.channels) {
+				// stop playing oscillators
+				for (var i = 0; i < 16; i++) {
+					if (this.players[waveType].oscillators[i] != null) {
+						this.players[waveType].stop(i);
+					}
+				}
+				// reset grid
+				var grid = this.channels[waveType];
+				grid.array = grid.blankArray();
+			}
+		},
+
+		resetCurrentChannel : function() {
 			// stop current beat oscillators
 			for (var i = 0; i < 16; i++) {
-				if (this.player.oscillators[i] != null) {
-					this.player.stop(i);
+				if (this.players[this.currentGrid.id].oscillators[i] != null) {
+					this.players[this.currentGrid.id].stop(i);
 				}
 			}
 			// reset grid
-			this.grid.array = this.grid.blankArray();
+			this.currentGrid.array = this.currentGrid.blankArray();
 		},
 
 		setChannel : function(waveType) {
-			this.player.setChannelType(waveType);
+			this.currentGrid = this.channels[waveType];
 		},
 
 		draw : function(screen) {
-			this.grid.draw(screen, this.currentBeat, this.colors);
+			this.currentGrid.draw(screen, this.currentBeat, this.colors);
 		},
 
 		step : function() {
-			// +1 since current beat starts on beat -1
-			var prevCol = this.grid.array[this.currentBeat];
-			var currentCol = this.grid.array[(this.currentBeat + 1) % 16];
-			
-			for (var i = 0; i < 16; i++) {
-				// stop playing the previous column
-				if (prevCol[i].active && this.player.oscillators[i] != null) {
-					this.player.stop(i);
-				}
 
-				// start playing the current column
-				if (currentCol[i].active) {
-					this.player.start(i);
+			// for each channel
+			for (var waveType in this.players) {
+				var player = this.players[waveType];
+				var grid = this.channels[waveType];
+
+				// +1 since current beat starts on beat -1
+				var prevCol = grid.array[this.currentBeat];
+				var currentCol = grid.array[(this.currentBeat + 1) % 16];
+
+				for (var i = 0; i < 16; i++) {
+					// stop playing the previous column
+					if (player.oscillators[i] != null) {
+						player.stop(i);
+					}
+
+					// start playing the current column
+					if (currentCol[i].active) {
+						player.start(i);
+					}
 				}
 			}
+
 			this.currentBeat = (this.currentBeat + 1) % 16;
-		}
-	};
+		},
 
-
-	var Channel = function(numNotes) {
-		var arr = [];
-		for (var i = 0; i < numNotes; i++) {
-			var col = [];
-			for (var j = 0; j < numNotes; j++) {
-				col.push(0);
+		update : function() {
+			// update the mouser in here
+			if (this.mouseInput.isDown) {
+				// stuff?
 			}
-			arr.push(col);
 		}
-
-		this.notes = arr;
-		this.waveType = "square";
 	};
 
 
@@ -201,13 +233,13 @@
 	};
 
 
-	var Grid = function(width, height, cellSize, channel) {
+	var Grid = function(id, width, height, cellSize) {
+		this.id = id;
 		this.width = width;
 		this.height = height;
 		this.cellSize = cellSize;
 		this.selectedCells = [];			// for clicking and dragging across multiple cells
 		this.array = this.blankArray();
-		this.channel = channel;
 	}
 
 	Grid.prototype = {
@@ -301,75 +333,120 @@
 	};
 
 
-	var Mouser = function(canvas, grid) {
-		this.pos = {x : 0, y : 0};
-		this.isDown = false;
-		this.lastClickState = true;		// was the last cell clicked on active?
+	var SequencerMouseInput = function(canvas, sequencer) {
+		this.mouser = new Mouser(canvas);
+		this.lastClickState = true;			// was the last cell clicked on toggled to be active?	
+		this.sequencer = sequencer;			// for access to the current grid
 
-		// Event listeners for user input (mouse clicks)
-		canvas.addEventListener("mousedown", partial([canvas, grid], this.onMouseDown.bind(this)));
-		canvas.addEventListener("mouseup", partial([canvas], this.onMouseUp.bind(this)));
-		canvas.addEventListener("mousemove", partial([canvas, grid], this.onMouseMove.bind(this)));
-		canvas.addEventListener("mouseout", partial([canvas, grid], this.onMouseOut.bind(this)));
+		this.mouser.on("mouseclick", partial([canvas], this.onMouseClick.bind(this)));
+		this.mouser.on("mousedrag", partial([canvas], this.onMouseDrag.bind(this)));
 	};
 
-	Mouser.prototype = {
-		getIsDown : function() {
-			return this.isDown;
+	SequencerMouseInput.prototype = {
+		onMouseClick : function(canvas) {
+			var clickedCell = this.sequencer.currentGrid.mousePosToGridCell(this.mouser.getPos());
+			this.lastClickState = this.sequencer.currentGrid.toggleCell(clickedCell);
+			this.sequencer.currentGrid.selectedCells = [];
 		},
 
-		getCoordinates : function() {
-			return this.pos;
-		},
+		onMouseDrag : function(canvas) {
+			var currentSelectedCell = this.sequencer.currentGrid.mousePosToGridCell(this.mouser.getPos());
 
-		setCoordinates : function(canvas) {
-			var rect = canvas.getBoundingClientRect();
-			this.pos.x = event.offsetX || event.pageX - rect.left - window.scrollX;
-	    	this.pos.y = event.offsetY || event.pageY - rect.top - window.scrollY;
-
-	    	// clip to make sure the position is in bounds of the canvas
-	    	this.pos.x = Math.max(Math.min(this.pos.x, canvas.width), 0);
-	    	this.pos.y = Math.max(Math.min(this.pos.y, canvas.height), 0);
-		},
-
-		onMouseDown : function(canvas, grid, event) {
-			this.setCoordinates(canvas);
-
-			// is there a better way to do this? it'd be nice to have grid be separate from the mouser
-			var clickedCell = grid.mousePosToGridCell(this.pos);
-			this.lastClickState = grid.toggleCell(clickedCell);
-			grid.selectedCells = [];
-			
-			this.isDown = true;
-		},
-
-		onMouseMove : function(canvas, grid, event) {
-			// if the mouse is clicking and dragging
-			if (this.isDown) {
-				this.setCoordinates(canvas);
-				var currentSelectedCell = grid.mousePosToGridCell(this.pos);
-
-				// if the currently selected cell hasn't been updated already, update it
-				if (!grid.cellInArray(grid.selectedCells, currentSelectedCell)) {
-					grid.setCell(currentSelectedCell, this.lastClickState);
-				}
-				// and add it to the selected cells
-				grid.addToSelectedCells(currentSelectedCell);
+			// if the currently selected cell hasn't been updated already, update it
+			if (!this.sequencer.currentGrid.cellInArray(this.sequencer.currentGrid.selectedCells, currentSelectedCell)) {
+				this.sequencer.currentGrid.setCell(currentSelectedCell, this.lastClickState);
 			}
-		},
-
-		onMouseUp : function(canvas, event) {
-			this.isDown = false;
-		},
-
-		onMouseOut : function(canvas, grid, event) {
-			this.isDown = false;
-			grid.selectedCells = [];
+			// and add it to the selected cells
+			this.sequencer.currentGrid.addToSelectedCells(currentSelectedCell);
 		}
 	};
 
 
-	var Player = function(startingPitch, numNotes, audioCtx) {
+	var Mouser = function(target) {
+		this._isDown = false;
+		this._pos = {x : 0, y : 0};
+		this.handlers = {};
+
+		var lastMouseEvent;
+		var self = this;
+
+		// mousedown and mouseclick
+		target.addEventListener("mousedown", function(e) {
+			self._fireEvent(e);
+			self.setPos(target);
+			self._isDown = true;
+
+			if (lastMouseEvent !== "mousedown") {
+				self._fireEvent({ type: "mouseclick", 
+					              offsetX: e.offsetX, offsetY: e.offsetY, 
+					              pageX: e.pageX, pageY: e.pageY});
+			}
+			lastMouseEvent = "mousedown";
+		});
+
+		//mouseup
+		target.addEventListener("mouseup", function(e) {
+			self._fireEvent(e);
+			self._isDown = false;
+			lastMouseEvent = "mouseup";
+		});
+
+		//mousemove and mousedrag
+		target.addEventListener("mousemove", function(e) {
+			self._fireEvent(e);
+			self.setPos(target);
+
+			if (self.getIsDown()) {
+				self._fireEvent({ type: "mousedrag", 
+					              offsetX: e.offsetX, offsetY: e.offsetY, 
+					              pageX: e.pageX, pageY: e.pageY});
+			}
+		});
+
+		//mouseout
+		target.addEventListener("mouseout", function(e) {
+			self._fireEvent(e);
+			self._isDown = false;
+			lastMouseEvent = "mouseout";
+		});
+
+	};
+
+	Mouser.prototype = {
+		_fireEvent : function(event) {
+			var handlers = this.handlers[event.type] || [];
+			handlers.forEach(function(h) {
+				h(event);
+			});
+		},
+
+		on : function(type, fn) {
+			this.handlers[type] = this.handlers[type] || [];
+			this.handlers[type].push(fn);
+		},
+
+		setPos : function(target) {
+			var rect = target.getBoundingClientRect();
+			this._pos.x = event.offsetX || event.pageX - rect.left - window.scrollX;
+	    	this._pos.y = event.offsetY || event.pageY - rect.top - window.scrollY;
+
+	    	// clip to make sure the position is in bounds of the target area
+	    	this._pos.x = Math.max(Math.min(this._pos.x, target.width), 0);
+	    	this._pos.y = Math.max(Math.min(this._pos.y, target.height), 0);
+		},
+
+		getPos : function() {
+			return this._pos;
+		},
+
+		getIsDown : function() {
+			return this._isDown;
+		}
+	};
+
+
+	var Player = function(startingPitch, numNotes, waveType, audioCtx) {
+		this.waveType = waveType;
 		this.audioCtx = audioCtx;
 		this.oscillators = [];
 		this.frequencies = [];		// a different frequency for each row
@@ -381,15 +458,16 @@
 	};
 
 	Player.prototype = {
-		setChannelType : function(type) {
-			this.waveType = type;
-		},
-
 		newOscillator : function(frequency, waveType) {
 			var oscillator = this.audioCtx.createOscillator();
+			var gainNode = this.audioCtx.createGain();
+			
+			gainNode.gain.value = 0.25;
 			oscillator.frequency.value = frequency;
 			oscillator.type = waveType;
-			oscillator.connect(this.audioCtx.destination);
+			
+			oscillator.connect(gainNode);
+			gainNode.connect(this.audioCtx.destination);
 			return oscillator;
 		},
 

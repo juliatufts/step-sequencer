@@ -12,20 +12,27 @@
 		var canvas = document.getElementById(canvasId);
 		var screen = canvas.getContext("2d");
 		var audioCtx = new AudioContext();
-		var waveTypes = ['square', 'sine', 'sawtooth', 'triangle'];
+		var waveTypes = ['noise', 'triangle', 'sawtooth', 'sine', 'square'];
+		// red, orange, yellow, green, blue: normal, light
+		var colorPalettes = [{active : ["#DF151A", "#DF151A"], light : ["#A020F0", "#BF5FFF"], neutral : ["#424242", "#575757", "#000000"]},
+							 {active : ["#FD8603", "#FD8603"], light : ["#A020F0", "#BF5FFF"], neutral : ["#424242", "#575757", "#000000"]},
+							 {active : ["#F4F328", "#F4F328"], light : ["#A020F0", "#BF5FFF"], neutral : ["#424242", "#575757", "#000000"]},
+							 {active : ["#00DA3C", "#00DA3C"], light : ["#A020F0", "#BF5FFF"], neutral : ["#424242", "#575757", "#000000"]},
+							 {active : ["#24C0EB", "#5CCEEE"], light : ["#A020F0", "#BF5FFF"], neutral : ["#424242", "#575757", "#000000"]}]
 
 		//--------------------- properties
 		this.channels = {};
 		this.players = {};
 		for (var i = 0; i < waveTypes.length; i++) {
-			this.channels[waveTypes[i]] = new Grid(waveTypes[i], canvas.width, canvas.height, Math.floor(canvas.width / 16))
+			this.channels[waveTypes[i]] = new Grid(waveTypes[i], 
+				 								   canvas.width, canvas.height, 
+				 								   Math.floor(canvas.width / 16), 
+				 								   colorPalettes[i]);
 			this.players[waveTypes[i]] = new Player(261.626, 16, waveTypes[i], audioCtx); // C4 to Eb5
 		}
-		this.currentGrid = this.channels.square;
+		this.currentGrid = this.channels[waveTypes[0]];
 		this.mouseInput = new SequencerMouseInput(canvas, this);
 		this.currentBeat = 15;	// the beat increments right away, so start one before 0
-		this.colors = {light : ["#24C0EB", "#5CCEEE"],			 		// blue, light blue
-		               neutral : ["#424242", "#575757", "#000000"]};	// grey, light grey, black
 		this.ticker = new Ticker();
 
 		//--------------------- timing and main functions
@@ -35,29 +42,100 @@
 			self.step();
 		};
 
-		// update as fast as possible
-		var lastUpdateId;
+		// draw 60fps
 		this.runUpdate = function() {
 			self.draw(screen);
 		}
-		lastUpdateId = this.ticker.every(5, this.runUpdate);
+		this.ticker.every(17, this.runUpdate);
 
 		// set tempo
 		var lastId;
 		this.setTempo = function(tempo) {
-			// adjust tempo to be in range
-			tempo = (tempo < 1) ? 1 : ((tempo > 300) ? 300 : tempo);
+			// adjust tempo to be in range (including 0 for pause/stop purposes)
+			tempo = (tempo < 0) ? 0 : ((tempo > 300) ? 300 : tempo);
 			this.ticker.delete(lastId);
 			lastId = this.ticker.every(this.tempoToTimestep(tempo), runSequencer);
 		} 
 
 		//--------------------- UI
 		this.setupUI(formId);
+
+		//--------------------- event listeners for changing tabs
+		this.tempoSelect = document.getElementById(formId).lastChild;
+		this.setupEventHandlers();
 	};
 
 	Sequencer.prototype = {
+		play : function() {
+			this.setTempo(this.tempoSelect.value);
+			this.currentState = "play";
+			console.log("changing state to: " + this.currentState);
+		},
+
+		pause : function() {
+			this.stopPlayingSound();
+			this.setTempo(0);
+			this.currentState = "pause";
+			console.log("changing state to: " + this.currentState);
+		},
+
+		stop : function() {
+			this.pause();
+			this.currentBeat = 15;
+			this.currentState = "stop";
+			console.log("changing state to: " + this.currentState);
+		},
+
+		stopPlayingSound : function() {
+			// for each channel
+			for (var waveType in this.players) {
+				var player = this.players[waveType];
+				var grid = this.channels[waveType];
+
+				// +1 since current beat starts on beat -1
+				var prevCol = grid.array[this.currentBeat];
+
+				for (var i = 0; i < 16; i++) {
+					// stop playing the previous column
+					if (player.oscillators[i] != null) {
+						player.stop(i);
+					}
+				}
+			}
+		},
+
+		setupEventHandlers : function() {
+			this.currentState = "play";
+			var self = this;
+			var _fn;
+			
+			window.addEventListener("blur", function() {
+				var lastState = self.currentState;
+				console.log("last state: " + lastState);
+				self.pause();
+
+				// remove last event listener added
+				window.removeEventListener("focus", _fn);
+
+				_fn = function() {
+					console.log("foo");
+					self[lastState]();
+				};
+				window.addEventListener("focus", _fn);
+			});
+		},
+
 		setupUI : function(formId) {
 			this.ui = new UI(formId);
+
+			// play button
+			this.ui.addButton("Play", this.play.bind(this));
+
+			// pause button
+			this.ui.addButton("Pause", this.pause.bind(this));
+
+			// stop button
+			this.ui.addButton("Stop", this.stop.bind(this));
 
 			// reset all button
 			this.ui.addButton("Reset All", this.resetAll.bind(this));
@@ -69,12 +147,13 @@
 			this.ui.addSelect("Channel : ", {Square : "square",
 							   			  	Sine : "sine",
 							                Sawtooth : "sawtooth",
-							            	Triangle : "triangle"}, this.setChannel.bind(this));
+							            	Triangle : "triangle",
+							            	Noise : "noise"}, this.setChannel.bind(this));
 			this.setChannel("square");
 
-			// tempo
-			this.ui.addNumberInput("Tempo : ", 60, 1, 300, this.setTempo.bind(this));
-			this.setTempo(60);
+			// tempo input
+			this.ui.addNumberInput("Tempo : ", 120, 1, 300, this.setTempo.bind(this));
+			this.setTempo(120);
 		},
 
 		tempoToTimestep : function(tempo) {
@@ -112,11 +191,14 @@
 		},
 
 		draw : function(screen) {
-			this.currentGrid.draw(screen, this.currentBeat, this.colors);
+			var i = 0;
+			for (var waveType in this.channels) {
+				this.channels[waveType].draw(screen, this.currentBeat, true, i);
+				i++;
+			}
 		},
 
 		step : function() {
-
 			// for each channel
 			for (var waveType in this.players) {
 				var player = this.players[waveType];
@@ -140,13 +222,6 @@
 			}
 
 			this.currentBeat = (this.currentBeat + 1) % 16;
-		},
-
-		update : function() {
-			// update the mouser in here
-			if (this.mouseInput.isDown) {
-				// stuff?
-			}
 		}
 	};
 
@@ -180,7 +255,9 @@
 			this.form.appendChild(document.createTextNode(label));
 			this.form.appendChild(select);
 
+			// FIX LAG ISSUE HERE?
 			select.onchange = function() {
+				console.log("change");
 				fn(select.value);
 			};
 		},
@@ -188,13 +265,17 @@
 		addNumberInput : function(label, value, min, max, fn) {
 			var input = document.createElement("input");
 			input.type = "number";
-			input.value = value;
-			input.min = min;
-			input.max = max;
+			input.value = value;	// for display purposes only
+			input.min = min;		// for display purposes only
+			input.max = max;		// for display purposes only
+			var min = min;
+			var max = max;
 			this.form.appendChild(document.createTextNode(label));
 			this.form.appendChild(input);
 
 			input.onchange = function() {
+				var value = parseInt(input.value);
+				input.value = (value > max) ? max : ((value < min) ? min : value);
 				fn(input.value);
 			};
 		}
@@ -233,13 +314,14 @@
 	};
 
 
-	var Grid = function(id, width, height, cellSize) {
+	var Grid = function(id, width, height, cellSize, colors) {
 		this.id = id;
 		this.width = width;
 		this.height = height;
 		this.cellSize = cellSize;
 		this.selectedCells = [];			// for clicking and dragging across multiple cells
 		this.array = this.blankArray();
+		this.colors = colors;
 	}
 
 	Grid.prototype = {
@@ -255,44 +337,61 @@
 			return gridArray;
 		},
 
-		drawCell : function(screen, x, y, size, color, borderColor) {
-			screen.fillStyle = borderColor;
-			screen.fillRect(x + 2, y + 2, size - 4, size - 4);
+		drawCell : function(screen, x, y, size, color, borderColor, minified, index) {
+			var height;
+			var padBorder;
+			var padInside;
+			var padBoth;
+			var insideY;
 
+			if (minified) {
+				padBorder = 2;
+				padInside = 2;
+				padBoth = padBorder + padInside;
+				height = ((size - padBoth * 2) / 5);
+				insideY = Math.floor(y + ((4 - index) * height));
+			} else {
+				padBorder = 2;
+				padInside = 2;
+				padBoth = padBorder + padInside;
+				height = size - padBoth * 2;
+				insideY = y;
+			}
+
+			// outline: top, left, right, bottom
+			screen.fillStyle = "#000000";
+			screen.fillRect(x + padBorder, y + padBorder, size - padBorder * 2, padBorder);
+			screen.fillRect(x + padBorder, y + padBorder, padBorder, size - padBorder * 2);
+			screen.fillRect(x + size - padBorder * 2, y + padBorder, padBorder, size - padBorder * 2);
+			screen.fillRect(x + padBorder, y + size - padBorder * 2, size - padBorder * 2, padBorder);
+
+			// color
 			screen.fillStyle = color;
-			screen.fillRect(x + 4, y + 4, size - 8, size - 8);
+			screen.fillRect(x + padBoth, insideY + padBoth, size - padBoth * 2, height);
 		},
 
 		// Returns [main color, border color]
-		determineCellColors : function(cell, col, y, highlightIndex, colors) {
+		determineCellColors : function(cell, col, y, highlightIndex) {
 			if (cell.active) {
-				// the active color is lighter for higher frequency notes (those with smaller y value)
-				var r = Math.floor(100 * ((16 - y) / 16) + 30);
-				var g = Math.floor((255 - 175) * ((16 - y) / 16) + 175);
-				var b = Math.floor(100 * ((16 - y) / 16) + 30);
-
-				var main = "rgb(" + r + "," + g + "," + b + ")";
-				var border = "rgb(" + (r + 30) + "," + (g + 30) + "," + (b + 30) + ")";
-				
-				return [main, border];
+				return [this.colors.active[0], this.colors.active[1]];
 			} else if (col === highlightIndex) {
-				return [colors.light[0], colors.light[1]];
+				return [this.colors.light[0], this.colors.light[1]];
 			} else if (col % 4 === 0) {
-				return [colors.neutral[0], colors.neutral[1]];
+				return [this.colors.neutral[0], this.colors.neutral[1]];
 			} else {
-				return [colors.neutral[2], colors.neutral[0]];
+				return [this.colors.neutral[2], this.colors.neutral[0]];
 			}
 		},
 
-		draw : function(screen, highlightIndex, colors) {
+		draw : function(screen, highlightIndex, minified, index) {
 			var cell;
-			var colorArray;	// [main color, border color]
+			var colorTuple;	// [main color, border color]
 
 			for (var col = 0; col < this.array.length; col++) {
 				for (var y = 0; y < this.array[0].length; y++) {
 					cell = this.array[col][y];
-					colorArray = this.determineCellColors(cell, col, y, highlightIndex, colors);
-					this.drawCell(screen, cell.x, cell.y, this.cellSize, colorArray[0], colorArray[1]);
+					colorTuple = this.determineCellColors(cell, col, y, highlightIndex);
+					this.drawCell(screen, cell.x, cell.y, this.cellSize, colorTuple[0], colorTuple[1], minified, index);
 				}
 			}
 		},
@@ -446,6 +545,8 @@
 
 
 	var Player = function(startingPitch, numNotes, waveType, audioCtx) {
+		this.startingPitch = startingPitch;
+		this.endingPitch = startingPitch * Math.pow(2, (numNotes - 1)/12);
 		this.waveType = waveType;
 		this.audioCtx = audioCtx;
 		this.oscillators = [];
@@ -459,10 +560,30 @@
 
 	Player.prototype = {
 		newOscillator : function(frequency, waveType) {
+			if (waveType === "noise") {
+				// the sample rate is in the range [3000, 192000]
+				var normFrequency = (frequency - this.startingPitch) / (this.endingPitch - this.startingPitch);
+				var frameRate = 3000 + normFrequency * (192000 - 3000);
+				var sampleRate = frameRate;
+				var buffer = this.audioCtx.createBuffer(1, frameRate, sampleRate);
+				var data = buffer.getChannelData(0);
+
+				for (i = 0; i < data.length; i++) {
+				    data[i] = (Math.random() - 0.5) * 2 * 0.2;
+				}
+
+				var source = this.audioCtx.createBufferSource();
+				source.loop = true;
+				source.buffer = buffer;
+				source.connect(this.audioCtx.destination);
+
+				return source;
+			}
+
 			var oscillator = this.audioCtx.createOscillator();
 			var gainNode = this.audioCtx.createGain();
 			
-			gainNode.gain.value = 0.25;
+			gainNode.gain.value = 0.2;
 			oscillator.frequency.value = frequency;
 			oscillator.type = waveType;
 			
@@ -481,7 +602,6 @@
 			this.oscillators[index] = null;
 		},
 	};
-
 
 	window.onload = function() {
 		new Sequencer("canvasId", "formId");

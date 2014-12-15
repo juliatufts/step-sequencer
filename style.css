@@ -1,0 +1,48 @@
+html {
+	background-color: #DDDDDD;
+}
+/*			section {
+    width: 75%;
+    margin-left: auto;
+	margin-right: auto;
+    padding: 10px;
+}
+#formId {
+    width: 15%;
+    padding: 10px;
+    float: left;
+}
+#canvasId {
+	width: 512px;
+	height: 512px;
+    margin-left: 5%;
+    padding: 10px;
+}*/
+
+#formId {
+	text-align: center;
+	display: table;
+}
+
+button {
+	padding: 4px 8px 4px 8px;
+	background-color: #000000;
+	color: #FFFFFF;
+	border: none;
+	outline: none;
+}
+
+button:hover {
+	background-color: #555555;
+}
+
+button, select, input {
+	margin : 4px;
+}
+
+canvas {
+	margin-left: auto;
+	margin-right: auto;
+	margin-top: 10px;
+	display: block;
+}

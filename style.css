@@ -1,43 +1,73 @@
+/**********************************************************
+  Color Palette:
+  	red,     orange,  yellow,  green,   blue,    purple
+	#DF151A, #FD8603, #F4F328, #00DA3C, #24C0EB, #BF5FFF
+***********************************************************/
+
+/****************
+  Main Elements
+*****************/
 html {
-	background-color: #DDDDDD;
+	background-color: #CCCCCC;
 }
-/*			section {
-    width: 75%;
-    margin-left: auto;
-	margin-right: auto;
-    padding: 10px;
+
+h1 {
+	margin: 2px;
+	font-family: 'Lobster', cursive;
+	text-align: center;
+	display: block;
 }
-#formId {
-    width: 15%;
-    padding: 10px;
-    float: left;
+
+p {
+	margin: 0;
+	text-align: center;
+	font-family: sans;
 }
-#canvasId {
-	width: 512px;
-	height: 512px;
-    margin-left: 5%;
-    padding: 10px;
-}*/
 
 #formId {
+	font-family: 'Stint Ultra Condensed', cursive;
+	font-size: 24px;
+	margin-top: 40px;
+	margin-left: 10px;
 	text-align: center;
 	display: table;
 }
 
+#formId div {
+	margin-top: 20px;
+	margin-bottom: 20px;
+}
+
 button {
-	padding: 4px 8px 4px 8px;
-	background-color: #000000;
-	color: #FFFFFF;
-	border: none;
-	outline: none;
+	display: inline-block;
+	background-color: #e7e7e7;
+	padding: 8px 20px;
+	border-radius: 5px;
+	-moz-border-radius: 5px;
+	-webkit-border-radius: 5px;
+	border: 1px solid rgba(0,0,0,0.3);
+	border-bottom-width: 2px;
+
+	text-transform: uppercase;
+	font-family: 'Stint Ultra Condensed', cursive;
+	font-size: 24px;
 }
 
 button:hover {
-	background-color: #555555;
+	background-color: #999999;
+}
+
+button:active {
+	background-color: #BF5FFF;
+	border-color: #000000;
 }
 
 button, select, input {
 	margin : 4px;
+}
+
+button:focus, input:focus{
+    outline: 0;
 }
 
 canvas {
@@ -46,3 +76,117 @@ canvas {
 	margin-top: 10px;
 	display: block;
 }
+
+/****************
+  Radio Buttons
+*****************/
+
+/* Hide radio button (the round disc) (we will use just the label to create pushbutton effect) */
+input[type=radio] {
+    display:none; 
+    margin:10px;
+}
+ 
+/* Prettify labels (which are adjacent to radiobuttons). Add some margin, padding to label and hover effect */
+input[type=radio] + label {
+    display:inline-block;
+    margin: 0px;
+    padding: 4px 12px;
+    background-color: #e7e7e7;
+}
+
+input[type=radio] + label:hover {
+	background-color: #999999;
+}
+
+/* Change background color for label next to checked radio button to make it look like highlighted button */
+/*Default*/
+input[type=radio]:checked + label { 
+   background-image: none;
+   background-color: #999999;
+}
+
+/*State buttons*/ 
+input[type=radio]:checked + label.play {
+	background-color: #00DA3C;
+}
+
+input[type=radio]:checked + label.pause {
+	background-color: #FD8603;
+}
+
+input[type=radio]:checked + label.stop {
+	background-color: #DF151A;
+}
+
+/*Channel buttons*/
+input[type=radio]:checked + label.square {
+	background-image: none;
+   	background-color: #24C0EB !important;
+}
+
+input[type=radio]:checked + label.sine {
+	background-color: #00DA3C;
+}
+
+input[type=radio]:checked + label.sawtooth {
+	background-color: #F4F328;
+}
+
+input[type=radio]:checked + label.triangle {
+	background-color: #FD8603;
+}
+
+input[type=radio]:checked + label.noise {
+	background-color: #DF151A;
+}
+
+/*Display buttons*/ 
+input[type=radio]:checked + label.all {
+	background-color: #BF5FFF;
+}
+
+input[type=radio]:checked + label.one {
+	background-color: #BF5FFF;
+}
+
+
+/********************************
+   Div Right side / Left side
+*********************************/
+
+/*column setup*/
+.col {
+	display: block;
+	float:left;
+	margin: 1% 0 1% 1.6%;
+}
+.col:first-child { margin-left: 0; }
+
+
+/*grid of two - golden ratio*/
+.span_right_side {
+	width: 50%;
+	/*width: 61.8%;*/
+}
+.span_left_side {
+	padding-left: 8%;
+	width: 30.9%;
+}
+
+/*go full width at less than 480px*/
+@media only screen and (max-width: 480px) {
+	.col { 
+		margin: 1% 0 1% 0%;
+	}
+}
+
+@media only screen and (max-width: 480px) {
+	.span_right_side {
+		width: 100%;
+	}
+	.span_left_side {
+		width: 100%;
+	}
+}
+

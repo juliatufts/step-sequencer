@@ -1,16 +1,25 @@
 <!DOCTYPE html>
 <html>
 	<head>
+		<link href='http://fonts.googleapis.com/css?family=Lobster|Stint+Ultra+Condensed' rel='stylesheet' type='text/css'>
 		<link rel="stylesheet" type="text/css" href="style.css">
 		<script src="sequencer.js"></script>
+		<title>SSSD</title>
 	</head>
 
-	<body>	
-		<section>
+	<body>
+		<h1>Super Step Sequencer Deluxe</h1>
+		<p>(currently only supported in Chrome)</p>
+
+		<!-- LEFT SIDE : FORM -->
+		<div class="col span_left_side">
 			<form id="formId">
 				<input type="submit" style="display: none;">
 			</form>
-			<canvas id="canvasId" width="512px" height="512px"></canvas>
-		</section>
+		</div>
+	  <!-- RIGHT SIDE : CANVAS -->
+		<div class="col span_right_side">
+				<canvas id="canvasId" width="512px" height="512px"></canvas>
+		</div>
 	</body>
 </html>

@@ -8,7 +8,7 @@
 		};
 	};
 	
-	var Sequencer = function(canvasId, formId) {
+	var Sequencer = function(canvasId, formId, tempoId) {
 		var canvas = document.getElementById(canvasId);
 		var screen = canvas.getContext("2d");
 		var audioCtx = new AudioContext();
@@ -59,31 +59,39 @@
 
 		//--------------------- UI
 		this.setupUI(formId);
+		this.displayView = "all";
 
 		//--------------------- event listeners for changing tabs
-		this.tempoSelect = document.getElementById(formId).lastChild;
+		this.tempoSelect = document.getElementById(tempoId);
 		this.setupEventHandlers();
 	};
 
 	Sequencer.prototype = {
+		setState : function(state) {
+			if (state === "play") {
+				this.play();
+			} else if (state === "pause") {
+				this.pause();
+			} else if (state === "stop") {
+				this.stop();
+			}
+		},
+
 		play : function() {
 			this.setTempo(this.tempoSelect.value);
 			this.currentState = "play";
-			console.log("changing state to: " + this.currentState);
 		},
 
 		pause : function() {
 			this.stopPlayingSound();
 			this.setTempo(0);
 			this.currentState = "pause";
-			console.log("changing state to: " + this.currentState);
 		},
 
 		stop : function() {
 			this.pause();
 			this.currentBeat = 15;
 			this.currentState = "stop";
-			console.log("changing state to: " + this.currentState);
 		},
 
 		stopPlayingSound : function() {
@@ -111,14 +119,12 @@
 			
 			window.addEventListener("blur", function() {
 				var lastState = self.currentState;
-				console.log("last state: " + lastState);
 				self.pause();
 
-				// remove last event listener added
+				// remove last event listener added from previous blur call
 				window.removeEventListener("focus", _fn);
 
 				_fn = function() {
-					console.log("foo");
 					self[lastState]();
 				};
 				window.addEventListener("focus", _fn);
@@ -128,32 +134,30 @@
 		setupUI : function(formId) {
 			this.ui = new UI(formId);
 
-			// play button
-			this.ui.addButton("Play", this.play.bind(this));
+			// radio select for play / pause / stop
+			this.ui.addRadioSelect("", "state", {Play : "play", Pause : "pause", Stop : "stop"}, this.setState.bind(this));
 
-			// pause button
-			this.ui.addButton("Pause", this.pause.bind(this));
-
-			// stop button
-			this.ui.addButton("Stop", this.stop.bind(this));
-
-			// reset all button
-			this.ui.addButton("Reset All", this.resetAll.bind(this));
-
-			// reset channel button
-			this.ui.addButton("Reset Channel", this.resetCurrentChannel.bind(this));
-
-			// channel select for wave type
-			this.ui.addSelect("Channel : ", {Square : "square",
+			// radio select for channel (wave) type
+			this.ui.addRadioSelect("CHANNEL : ", "channel", {Square : "square",
 							   			  	Sine : "sine",
 							                Sawtooth : "sawtooth",
 							            	Triangle : "triangle",
 							            	Noise : "noise"}, this.setChannel.bind(this));
 			this.setChannel("square");
 
+			// radio select for display option
+			this.ui.addRadioSelect("DISPLAY : ", "display", {All : "all",
+				   			  	One : "one"}, this.setDisplay.bind(this));
+
 			// tempo input
-			this.ui.addNumberInput("Tempo : ", 120, 1, 300, this.setTempo.bind(this));
+			this.ui.addNumberInput("TEMPO : ", "tempoId", 120, 1, 300, this.setTempo.bind(this));
 			this.setTempo(120);
+
+			// reset all button
+			this.ui.addButton("reset all", this.resetAll.bind(this));
+
+			// reset channel button
+			this.ui.addButton("reset channel", this.resetCurrentChannel.bind(this));
 		},
 
 		tempoToTimestep : function(tempo) {
@@ -190,11 +194,19 @@
 			this.currentGrid = this.channels[waveType];
 		},
 
+		setDisplay : function(displayType) {
+			this.displayView = displayType;
+		},
+
 		draw : function(screen) {
-			var i = 0;
-			for (var waveType in this.channels) {
-				this.channels[waveType].draw(screen, this.currentBeat, true, i);
-				i++;
+			if (this.displayView === "all") {
+				var i = 0;
+				for (var waveType in this.channels) {
+					this.channels[waveType].draw(this, screen, this.currentBeat, true, i);
+					i++;
+				}
+			} else {
+				this.channels[this.currentGrid.id].draw(this, screen, this.currentBeat, false, i);
 			}
 		},
 
@@ -237,33 +249,67 @@
 
 	UI.prototype = {
 		addButton : function(label, fn) {
+			var div = document.createElement("div");
 			var button = document.createElement("button");
 			var text = document.createTextNode(label);
-			this.form.appendChild(button).appendChild(text);
+			this.form.appendChild(div).appendChild(button).appendChild(text);
 
 			button.onclick = fn;
 		},
 
-		addSelect : function(label, options, fn) {
-			var select = document.createElement("select");
-			for (var i in options) {
-				var opt = document.createElement("option");
-				var text = document.createTextNode(i);
-				opt.value = options[i];
-				select.appendChild(opt).appendChild(text);
-			}
+		addRadioSelect : function(label, id, options, fn) {
 			this.form.appendChild(document.createTextNode(label));
-			this.form.appendChild(select);
+			var div = document.createElement("div");
 
-			// FIX LAG ISSUE HERE?
-			select.onchange = function() {
-				console.log("change");
-				fn(select.value);
-			};
+			for (var i in options) {
+				var opt = document.createElement("input");
+				var text = document.createTextNode(i);
+
+				opt.name = id;
+				opt.type = "radio";
+				opt.value = options[i];
+				opt.id = options[i];
+				div.appendChild(opt);
+
+				// add a label for the radios to display as push buttons
+				var l = document.createElement("label")
+				l.className = options[i];
+				l.htmlFor = options[i];
+				l.innerHTML = opt.value;
+				div.appendChild(l);
+			}
+			this.form.appendChild(div);
+
+			// after all radio buttons are made
+			// check the first radio button
+			var radios = this.form.elements[id];
+			radios[0].checked = true;
+
+			// and add event listeners
+			var self = this;
+			for (var i = 0; i < radios.length; i++) {
+				radios[i].onclick = function() {
+					var checkedValue = self.getRadioVal(radios);
+					fn(checkedValue);
+				};
+			}
 		},
 
-		addNumberInput : function(label, value, min, max, fn) {
+		getRadioVal : function(radios) {
+		    var val;
+		    
+		    for (var i = 0; i < radios.length; i++) {
+		        if (radios[i].checked) {
+		            val = radios[i].value;
+		            break;
+		        }
+		    }
+		    return val;
+		},
+
+		addNumberInput : function(label, id, value, min, max, fn) {
 			var input = document.createElement("input");
+			input.id = id;
 			input.type = "number";
 			input.value = value;	// for display purposes only
 			input.min = min;		// for display purposes only
@@ -371,26 +417,31 @@
 		},
 
 		// Returns [main color, border color]
-		determineCellColors : function(cell, col, y, highlightIndex) {
+		determineCellColors : function(sequencer, cell, col, y, highlightIndex) {
 			if (cell.active) {
 				return [this.colors.active[0], this.colors.active[1]];
-			} else if (col === highlightIndex) {
-				return [this.colors.light[0], this.colors.light[1]];
-			} else if (col % 4 === 0) {
-				return [this.colors.neutral[0], this.colors.neutral[1]];
-			} else {
-				return [this.colors.neutral[2], this.colors.neutral[0]];
 			}
+
+			// light color is a valid cell color only if the current state isn't STOP
+ 			if (col === highlightIndex && sequencer.currentState !== "stop") {
+				return [this.colors.light[0], this.colors.light[1]];
+			}
+
+			if (col % 4 === 0) {
+				return [this.colors.neutral[0], this.colors.neutral[1]];
+			}
+			
+			return [this.colors.neutral[2], this.colors.neutral[0]];
 		},
 
-		draw : function(screen, highlightIndex, minified, index) {
+		draw : function(sequencer, screen, highlightIndex, minified, index) {
 			var cell;
 			var colorTuple;	// [main color, border color]
 
 			for (var col = 0; col < this.array.length; col++) {
 				for (var y = 0; y < this.array[0].length; y++) {
 					cell = this.array[col][y];
-					colorTuple = this.determineCellColors(cell, col, y, highlightIndex);
+					colorTuple = this.determineCellColors(sequencer, cell, col, y, highlightIndex);
 					this.drawCell(screen, cell.x, cell.y, this.cellSize, colorTuple[0], colorTuple[1], minified, index);
 				}
 			}
@@ -604,7 +655,7 @@
 	};
 
 	window.onload = function() {
-		new Sequencer("canvasId", "formId");
+		new Sequencer("canvasId", "formId", "tempoId");
 	};
 
 })();
